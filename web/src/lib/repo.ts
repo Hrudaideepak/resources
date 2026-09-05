@@ -8,8 +8,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import * as seed from "@/data/academic";
 import { resources as seedResources } from "@/data/resources";
+import { units as seedUnits } from "@/data/units";
 import { getSupabase } from "./supabase";
-import type { Branch, College, Regulation, Resource, Subject, SubjectWithContext, Submission } from "./types";
+import type { Branch, College, Regulation, Resource, Subject, SubjectWithContext, Submission, Unit } from "./types";
 
 // ------------------------------------------------------------ local store
 const LOCAL_SUBMISSIONS = path.join(process.cwd(), ".data", "submissions.json");
@@ -121,6 +122,24 @@ export async function getAllSubjects(): Promise<SubjectWithContext[]> {
     const r = row as Subject & { regulation: Regulation; branch: Branch; resources: { count: number }[] };
     return { ...r, resource_count: r.resources?.[0]?.count ?? 0 };
   });
+}
+
+// ------------------------------------------------------------ units
+export async function getUnitsForSubject(subjectId: string): Promise<Unit[]> {
+  const sb = getSupabase();
+  if (!sb) {
+    return seedUnits.filter((u) => u.subject_id === subjectId).sort((a, b) => a.unit_number - b.unit_number);
+  }
+  const { data } = await sb.from("units").select("*").eq("subject_id", subjectId).order("unit_number");
+  return (data as Unit[]) ?? [];
+}
+
+/** All units — small today (~155 rows), used by topic search. Supersede with a SQL view at scale. */
+export async function getAllUnits(): Promise<Unit[]> {
+  const sb = getSupabase();
+  if (!sb) return seedUnits;
+  const { data } = await sb.from("units").select("*").order("subject_id").order("unit_number");
+  return (data as Unit[]) ?? [];
 }
 
 // ------------------------------------------------------------ resources

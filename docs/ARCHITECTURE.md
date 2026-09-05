@@ -47,18 +47,18 @@ arrays plus a JSON file for submissions.
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 1 Product architecture | this doc, types, schema | ✅ |
-| 2 Academic database | JNTUH R22 + R25 CSE, 144 subjects | ✅ (units/topics per subject: next) |
-| 3 Website | home, semester, subject, search, submit | ✅ |
+| 2 Academic database | JNTUH R22 + R25 CSE, 144 subjects · unit titles + topics for all 28 R22 core theory subjects (140 units) | ✅ |
+| 3 Website | home, semester, subject (unit-level browsing), search, submit | ✅ |
 | 4 Submission + moderation | submit ✅ · moderator UI + auth | ⏳ |
 | 5 Discovery + ingestion | connectors: college sites, YouTube, GitHub; AI classification into the taxonomy | ⏳ |
-| 6 Search engine | pg_trgm + pgvector hybrid, ranking model | ⏳ |
+| 6 Search engine | topic → unit inference ✅ · pg_trgm + pgvector hybrid, ranking model | ⏳ |
 | 7 AI / RAG | subject assistant grounded on syllabus + indexed resources | ⏳ |
 | 8 Scale | more branches (ECE, IT, CSM…), autonomous colleges, other universities | ⏳ |
 
 ## Immediate next steps
 
-1. Add `units` rows (unit titles + topics) for the core theory subjects from the R22 syllabus PDF — this unlocks
-   unit-level browsing and later syllabus-match scoring.
-2. Moderator page (`/admin`) with Supabase Auth to approve/reject pending resources.
-3. Add branches: IT, ECE, CSM (AI&ML), CSD — the seed format makes this a copy of the course-structure table.
+1. Moderator page (`/admin`) with Supabase Auth to approve/reject pending resources.
+2. Add branches: IT, ECE, CSM (AI&ML), CSD — the seed format makes this a copy of the course-structure table.
+3. Syllabus-match scoring: use `units.topics` to score how well each resource covers a unit (`Resource Score = relevance + syllabus_match + unit_match + rating + freshness + source_quality`).
 4. First connector: YouTube Data API search per subject, auto-tagged, landing as `pending`.
+5. R25 units once JNTUH publishes the detailed R25 CSE syllabus (currently only the course structure PDF exists).

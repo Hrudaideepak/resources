@@ -6,7 +6,7 @@
  *
  * Later this becomes hybrid (pg_trgm + pgvector) — the interface stays the same.
  */
-import type { ResourceType, SubjectWithContext } from "./types";
+import type { ResourceType, SubjectWithContext, Unit } from "./types";
 
 export interface ParsedQuery {
   raw: string;
@@ -78,6 +78,8 @@ const acronym = (s: string) =>
 export interface SubjectHit {
   subject: SubjectWithContext;
   score: number;
+  /** unit matched on syllabus topics when the query had no explicit "unit N" */
+  unit: Unit | null;
 }
 
 export function scoreSubject(terms: string[], s: SubjectWithContext): number {
@@ -99,19 +101,81 @@ export function scoreSubject(terms: string[], s: SubjectWithContext): number {
   if (name.includes(q)) score = Math.max(score, 80);
   if (aliases.some((a) => a.includes(q))) score = Math.max(score, 70);
 
-  // per-word coverage
+  // per-word coverage (counts full terms that land on the name, short form, acronym or an alias)
   const words = name.split(" ");
-  const hit = terms.filter((t) => words.some((w) => w.startsWith(t)) || aliases.some((a) => a.includes(t))).length;
+  const hit = terms.filter(
+    (t) => t === short || t === acr || words.some((w) => w.startsWith(t)) || aliases.some((a) => a.includes(t)),
+  ).length;
   if (hit) score = Math.max(score, Math.round((hit / terms.length) * 65));
   return score;
 }
 
-export function searchSubjects(parsed: ParsedQuery, all: SubjectWithContext[], limit = 12): SubjectHit[] {
-  return all
+const TOPIC_STOP = new Set(["and", "the", "for", "unit", "of", "in", "to", "a", "an"]);
+
+/**
+ * Best topic → unit match inside one subject. When several units tie we still
+ * report the hit (`unit: null`) — enough to surface the subject in search —
+ * but never guess the wrong unit.
+ */
+export function matchUnitByTopics(
+  terms: string[],
+  subjectUnits: Unit[],
+): { unit: Unit | null; hits: number } | null {
+  const q = terms.filter((t) => t.length >= 3 && !TOPIC_STOP.has(t));
+  if (!q.length || !subjectUnits.length) return null;
+
+  const forms = (t: string) => (t.endsWith("s") ? [t, t.slice(0, -1)] : [t, `${t}s`]);
+  const scored = subjectUnits
+    .map((u) => {
+      const hay = ` ${norm(u.title)} ${norm(u.topics ?? "")} `;
+      const hits = q.filter((t) => forms(t).some((f) => hay.includes(` ${f} `))).length;
+      return { unit: u, hits };
+    })
+    .filter((s) => s.hits > 0)
+    .sort((a, b) => b.hits - a.hits);
+
+  const need = Math.min(2, q.length); // a single meaningful term only needs one hit
+  if (!scored.length || scored[0].hits < need) return null;
+  const best = scored[0];
+  if (scored.length > 1 && scored[1].hits === best.hits) return { unit: null, hits: best.hits }; // tied
+  return best;
+}
+
+/**
+ * Subject search joined with unit/topic search:
+ *  - subjects matched by name get their best unit attached (syllabus match);
+ *  - subjects whose *units* match the topic become hits even when the subject
+ *    name doesn't ("normalization notes" → DBMS, Unit 3).
+ */
+export function searchSubjects(
+  parsed: ParsedQuery,
+  all: SubjectWithContext[],
+  units: Unit[] = [],
+  limit = 12,
+): SubjectHit[] {
+  const scoped = all
     .filter((s) => !parsed.regulation || s.regulation.slug === parsed.regulation)
-    .filter((s) => !parsed.yearSem || (s.year === parsed.yearSem.year && s.semester === parsed.yearSem.semester))
-    .map((subject) => ({ subject, score: scoreSubject(parsed.terms, subject) }))
-    .filter((h) => h.score >= 40 || (parsed.terms.length === 0 && (parsed.regulation || parsed.yearSem)))
+    .filter((s) => !parsed.yearSem || (s.year === parsed.yearSem.year && s.semester === parsed.yearSem.semester));
+
+  const bySubject = new Map<string, Unit[]>();
+  for (const u of units) {
+    const list = bySubject.get(u.subject_id);
+    if (list) list.push(u);
+    else bySubject.set(u.subject_id, [u]);
+  }
+
+  const hits: SubjectHit[] = [];
+  for (const subject of scoped) {
+    const score = scoreSubject(parsed.terms, subject);
+    const topic = matchUnitByTopics(parsed.terms, bySubject.get(subject.id) ?? []);
+    if (score >= 40) {
+      hits.push({ subject, score, unit: topic?.unit ?? null });
+    } else if (topic) {
+      // topic-only match: rank below name matches but surface it
+      hits.push({ subject, score: 40 + Math.min(8 * topic.hits, 25), unit: topic.unit });
+    }
+  }
+  return hits
     .sort((a, b) => b.score - a.score || b.subject.resource_count - a.subject.resource_count)
     .slice(0, limit);
 }

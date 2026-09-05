@@ -13,10 +13,11 @@ semester once and get every subject with ranked notes, previous papers, syllabus
 ```
 web/                     Next.js 15 (App Router, TS, Tailwind 4) — the product
   src/data/academic.ts   canonical taxonomy: JNTUH R22 + R25 B.Tech CSE, all 8 semesters (144 subjects)
+  src/data/units.ts      official R22 unit titles + topics — 31 theory subjects × 5 units (155 rows)
   src/data/resources.ts  seed resources (official PDFs + well-known public references)
   src/lib/types.ts       the academic data model
   src/lib/repo.ts        data access — Supabase if configured, otherwise local seed data
-  src/lib/search.ts      query understanding: "cn unit 3 pyq" → subject + unit + type
+  src/lib/search.ts      query understanding + topic search: "normalization notes" → DBMS · Unit 3
   src/app/               pages: home, /{college}/{reg}/{branch}/{y}-{s}, /subject/{slug}, /search, /submit
   scripts/gen-seed-sql.ts  emits supabase/seed.sql from src/data so DB and local data never drift
 supabase/
@@ -44,8 +45,11 @@ After editing `src/data/*.ts`, regenerate the SQL: `npm run seed:sql`.
 
 - Semester picker (remembered in the browser → "My semester")
 - Semester page grouped by theory / labs / skill / project / mandatory, with course codes and credits
-- Subject page: resources grouped by type, filter by type and unit, ranked by score
+- Subject page: official course outline (unit titles + topics from the R22 syllabus), resources grouped by type,
+  filter by type and unit, ranked by score
 - Search with query understanding (subject aliases & acronyms, unit numbers, resource type, regulation, `3-1`)
+  **plus topic search** — syllabus unit topics are searchable, so `normalization notes` finds
+  *DBMS → Unit 3: SQL and Schema Refinement (Normalization)* even though no subject is named "normalization"
 - Resource submission form (link-only, deduped per subject)
 
 ## What V1 deliberately does NOT do
