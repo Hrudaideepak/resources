@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
+import { getSession } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/supabase";
 
 export const metadata: Metadata = {
@@ -9,8 +10,9 @@ export const metadata: Metadata = {
     "One academic search engine for JNTUH students: notes, previous papers, syllabus, videos and resources organised by regulation, branch, semester and subject.",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const local = !isSupabaseConfigured();
+  const session = await getSession();
   return (
     <html lang="en">
       <body className="antialiased font-sans min-h-screen flex flex-col">
@@ -22,6 +24,24 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             <nav className="flex items-center gap-4 text-sm text-stone-600">
               <Link href="/search" className="hover:text-stone-900">Search</Link>
               <Link href="/submit" className="hover:text-stone-900">+ Add resource</Link>
+              {session ? (
+                <>
+                  {session.role === "admin" && (
+                    <Link href="/admin" className="hover:text-stone-900">Moderation</Link>
+                  )}
+                  <Link href="/profile" className="hover:text-stone-900" title={session.hall_ticket}>
+                    👤 {session.name.split(" ")[0]}
+                  </Link>
+                  <Link href="/logout" className="text-stone-400 hover:text-stone-900">Log out</Link>
+                </>
+              ) : (
+                <>
+                  <Link href="/login" className="hover:text-stone-900">Log in</Link>
+                  <Link href="/signup" className="rounded-lg bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-700">
+                    Sign up
+                  </Link>
+                </>
+              )}
             </nav>
           </div>
         </header>

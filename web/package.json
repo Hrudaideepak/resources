@@ -7,11 +7,15 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "seed:sql": "tsx scripts/gen-seed-sql.ts"
+    "seed:sql": "tsx scripts/gen-seed-sql.ts",
+    "verify": "tsx scripts/verify.ts",
+    "discover": "tsx scripts/discover.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.6",
     "@supabase/supabase-js": "^2.115.0",
+    "bcryptjs": "^3.0.3",
+    "jose": "^6.2.12",
     "next": "15.5.25",
     "react": "19.1.0",
     "react-dom": "19.1.0"

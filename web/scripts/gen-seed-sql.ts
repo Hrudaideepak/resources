@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { branches, colleges, programs, regulations, subjects } from "../src/data/academic";
 import { resources } from "../src/data/resources";
+import { units } from "../src/data/units";
 
 const q = (v: unknown): string => {
   if (v === null || v === undefined) return "null";
@@ -40,6 +41,10 @@ for (const s of subjects)
   out.push(
     `insert into subjects (id,slug,code,name,short_name,regulation_id,branch_id,year,semester,kind,credits,elective_group,aliases) values (${uuid(s.id)},${q(s.slug)},${q(s.code)},${q(s.name)},${q(s.short_name)},${uuid(s.regulation_id)},${uuid(s.branch_id)},${s.year},${s.semester},${q(s.kind)},${q(s.credits)},${q(s.elective_group)},${q(s.aliases)}) on conflict (slug) do update set code=excluded.code,name=excluded.name,short_name=excluded.short_name,credits=excluded.credits,elective_group=excluded.elective_group,aliases=excluded.aliases;`,
   );
+for (const u of units)
+  out.push(
+    `insert into units (id,subject_id,unit_number,title,topics) values (${uuid(u.id)},${uuid(u.subject_id)},${u.unit_number},${q(u.title)},${q(u.topics)}) on conflict (subject_id,unit_number) do update set title=excluded.title,topics=excluded.topics;`,
+  );
 for (const r of resources)
   out.push(
     `insert into resources (title,url,type,source,subject_id,unit_number,description,language,status,score) values (${q(r.title)},${q(r.url)},${q(r.type)},${q(r.source)},${uuid(r.subject_id)},${q(r.unit_number)},${q(r.description)},${q(r.language)},${q(r.status)},${r.score}) on conflict (subject_id,url_hash) do nothing;`,
@@ -48,4 +53,4 @@ out.push("commit;");
 
 const dest = path.resolve(__dirname, "../../supabase/seed.sql");
 fs.writeFileSync(dest, out.join("\n") + "\n");
-console.log(`wrote ${dest} — ${subjects.length} subjects, ${resources.length} resources`);
+console.log(`wrote ${dest} — ${subjects.length} subjects, ${units.length} units, ${resources.length} resources`);
