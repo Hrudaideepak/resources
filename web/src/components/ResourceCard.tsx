@@ -1,4 +1,6 @@
 import type { Resource } from "@/lib/types";
+import ResourceSignals from "./ResourceSignals";
+import TrackedLink from "./TrackedLink";
 
 const SOURCE_LABEL: Record<Resource["source"], string> = {
   jntuh: "Official · JNTUH",
@@ -20,25 +22,28 @@ function host(url: string) {
 
 export default function ResourceCard({ r }: { r: Resource }) {
   return (
-    <a
-      href={r.url}
-      target="_blank"
-      rel="noopener noreferrer nofollow"
-      className="group flex flex-col rounded-2xl border border-stone-200 bg-white p-4 shadow-sm transition hover:border-indigo-300 hover:shadow"
-    >
+    <div className="group flex flex-col rounded-2xl border border-stone-200 bg-white p-4 shadow-sm transition hover:border-indigo-300 hover:shadow">
       <div className="flex items-center justify-between gap-2 text-xs text-stone-500">
         <span className={r.source === "jntuh" ? "font-semibold text-emerald-700" : ""}>{SOURCE_LABEL[r.source]}</span>
         <span className="font-mono">{host(r.url)}</span>
       </div>
-      <div className="mt-1 font-medium leading-snug group-hover:text-indigo-700">{r.title}</div>
+      <TrackedLink
+        href={r.url}
+        resourceId={r.id}
+        subjectId={r.subject_id}
+        className="mt-1 font-medium leading-snug group-hover:text-indigo-700 hover:underline"
+      >
+        {r.title}
+      </TrackedLink>
       {r.description && <p className="mt-1 text-sm text-stone-600 line-clamp-2">{r.description}</p>}
       <div className="mt-auto flex items-center gap-2 pt-3 text-xs text-stone-500">
         {r.unit_number != null && <span className="rounded bg-stone-100 px-1.5 py-0.5">Unit {r.unit_number}</span>}
         {r.submitted_by && <span>by {r.submitted_by}</span>}
-        <span className="ml-auto" title="ranking score">
+        <ResourceSignals resourceId={r.id} subjectId={r.subject_id} />
+        <span className="ml-auto" title="ranking score (seed + community usage)">
           ★ {r.score}
         </span>
       </div>
-    </a>
+    </div>
   );
 }

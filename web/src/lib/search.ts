@@ -110,7 +110,13 @@ export function scoreSubject(terms: string[], s: SubjectWithContext): number {
   return score;
 }
 
-const TOPIC_STOP = new Set(["and", "the", "for", "unit", "of", "in", "to", "a", "an"]);
+const TOPIC_STOP = new Set([
+  "and", "the", "for", "unit", "of", "in", "to", "a", "an",
+  // question phrasing — carries no topic signal
+  "what", "whats", "is", "are", "explain", "tell", "about", "define", "definition", "meaning",
+  "important", "topics", "topic", "question", "questions", "answer", "answers", "marks", "exam",
+  "notes", "note", "pdf", "material", "download", "short", "long", "part", "chapter",
+]);
 
 /**
  * Best topic → unit match inside one subject. When several units tie we still
@@ -147,11 +153,17 @@ export function matchUnitByTopics(
  *  - subjects whose *units* match the topic become hits even when the subject
  *    name doesn't ("normalization notes" → DBMS, Unit 3).
  */
+export interface SearchBias {
+  regulationSlug?: string; // boost subjects from the student's own regulation
+  branchSlug?: string;
+}
+
 export function searchSubjects(
   parsed: ParsedQuery,
   all: SubjectWithContext[],
   units: Unit[] = [],
   limit = 12,
+  bias?: SearchBias,
 ): SubjectHit[] {
   const scoped = all
     .filter((s) => !parsed.regulation || s.regulation.slug === parsed.regulation)
@@ -164,15 +176,23 @@ export function searchSubjects(
     else bySubject.set(u.subject_id, [u]);
   }
 
+  const boostFor = (s: SubjectWithContext): number => {
+    if (!bias) return 0;
+    let b = 0;
+    if (bias.regulationSlug && s.regulation.slug === bias.regulationSlug) b += 8;
+    if (bias.branchSlug && s.branch.slug === bias.branchSlug) b += 4;
+    return b;
+  };
+
   const hits: SubjectHit[] = [];
   for (const subject of scoped) {
-    const score = scoreSubject(parsed.terms, subject);
     const topic = matchUnitByTopics(parsed.terms, bySubject.get(subject.id) ?? []);
+    const score = scoreSubject(parsed.terms, subject) || (parsed.terms.length === 0 && (parsed.regulation || parsed.yearSem) ? 40 : 0);
     if (score >= 40) {
-      hits.push({ subject, score, unit: topic?.unit ?? null });
+      hits.push({ subject, score: score + boostFor(subject), unit: topic?.unit ?? null });
     } else if (topic) {
       // topic-only match: rank below name matches but surface it
-      hits.push({ subject, score: 40 + Math.min(8 * topic.hits, 25), unit: topic.unit });
+      hits.push({ subject, score: 40 + Math.min(8 * topic.hits, 25) + boostFor(subject), unit: topic.unit });
     }
   }
   return hits

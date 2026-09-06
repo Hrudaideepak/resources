@@ -1,15 +1,33 @@
 import Link from "next/link";
 import ResourceCard from "@/components/ResourceCard";
 import SearchBox from "@/components/SearchBox";
+import { getSession } from "@/lib/auth";
+import { logEvent } from "@/lib/events";
 import { getAllSubjects, getAllUnits, getSubjectResources } from "@/lib/repo";
+import { getUserByHallTicket } from "@/lib/users";
 import { parseQuery, searchSubjects } from "@/lib/search";
 import { RESOURCE_TYPE_LABEL } from "@/lib/types";
 
 export default async function SearchPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const { q = "" } = await searchParams;
   const parsed = parseQuery(q);
-  const [all, allUnits] = await Promise.all([getAllSubjects(), getAllUnits()]);
-  const hits = q ? searchSubjects(parsed, all, allUnits) : [];
+  const [all, allUnits, session] = await Promise.all([getAllSubjects(), getAllUnits(), getSession()]);
+
+  // Personalization: boost the student's own regulation + branch (from their profile).
+  const profile = session ? await getUserByHallTicket(session.hall_ticket) : null;
+  const bias = profile
+    ? {
+        regulationSlug: all.find((s) => s.regulation.id === profile.regulation_id)?.regulation.slug,
+        branchSlug: all.find((s) => s.branch.id === profile.branch_id)?.branch.slug,
+      }
+    : undefined;
+
+  const hits = q ? searchSubjects(parsed, all, allUnits, 12, bias) : [];
+
+  // Every search is interaction data — it teaches the engine what students need.
+  if (q && parsed.terms.length) {
+    await logEvent({ user: session?.hall_ticket ?? null, kind: "search", subject_id: hits[0]?.subject.id ?? null, query: q }).catch(() => {});
+  }
 
   // For the top hit, pull matching resources straight onto the page.
   const top = hits[0];

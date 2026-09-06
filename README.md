@@ -19,9 +19,17 @@ web/                     Next.js 15 (App Router, TS, Tailwind 4) — the product
   src/lib/repo.ts        data access — Supabase if configured, otherwise local seed data
   src/lib/search.ts      query understanding + topic search: "normalization notes" → DBMS · Unit 3
   src/app/               pages: home, /{college}/{reg}/{branch}/{y}-{s}, /subject/{slug}, /search, /submit
+  src/lib/auth.ts        JWT sessions (jose) + bcrypt, hall-ticket usernames, admin bootstrap
+  src/lib/users.ts       user store (Supabase service-role or .data/users.json)
+  src/lib/events.ts      interaction telemetry → popularity boost + trending
+  src/lib/ai.ts          grounded subject assistant (OpenAI or honest offline fallback)
+  src/lib/discover.ts    discovery agent: open-web connectors → taxonomy classifier → pending queue
   scripts/gen-seed-sql.ts  emits supabase/seed.sql from src/data so DB and local data never drift
+  scripts/discover.ts    discovery CLI (+ --selftest classifier fixtures)
+  scripts/verify.ts      end-to-end self-checks (npm run verify)
 supabase/
-  migrations/0001_schema.sql   Postgres schema + RLS (public read, anonymous submit → pending)
+  migrations/0001_schema.sql   core schema + RLS (public read, anonymous submit → pending)
+  migrations/0002_users_events.sql  users (RLS-locked) + events (insert-only)
   seed.sql                     generated
 docs/
   ARCHITECTURE.md        product & technical design, phases, decisions
@@ -43,15 +51,25 @@ After editing `src/data/*.ts`, regenerate the SQL: `npm run seed:sql`.
 
 ## What V1 does
 
-- Semester picker (remembered in the browser → "My semester")
-- Semester page grouped by theory / labs / skill / project / mandatory, with course codes and credits
-- Subject page: official course outline (unit titles + topics from the R22 syllabus), resources grouped by type,
-  filter by type and unit, ranked by score
-- Search with query understanding (subject aliases & acronyms, unit numbers, resource type, regulation, `3-1`)
-  **plus topic search** — syllabus unit topics are searchable, so `normalization notes` finds
-  *DBMS → Unit 3: SQL and Schema Refinement (Normalization)* even though no subject is named "normalization"
-- Resource submission form (link-only, deduped per subject)
+- **Accounts & profiles** — your **hall ticket number is your username**; bcrypt passwords, JWT session cookie.
+  Profile: name, college, regulation, branch, year, semester → drives all personalization.
+- **"My Semester"** — logged-in students get their subjects pinned to the homepage.
+- **Personalized, self-improving search** — results biased to your regulation/branch; 👍/👎 votes and clicks
+  re-rank resources automatically (`score + clamp(-25..25, clicks + 4·up − 6·down)`); trending strip learns from
+  what students actually open.
+- **Topic search** — syllabus unit topics are searchable: `normalization notes` finds
+  *DBMS → Unit 3* even though no subject is named "normalization"; explicit `dbms unit 3 important questions`
+  and `cn pyq r22` still just work.
+- **🤖 AI subject assistant** (per subject, login-gated) — with `OPENAI_API_KEY`, answers grounded strictly in the
+  official syllabus units + indexed resources with citations; without a key, an honest offline syllabus mapping.
+  Every question is logged as interaction data.
+- **Discovery agent** — scans YouTube, GitHub and the open web per subject (least-covered first), auto-classifies
+  into the taxonomy, queues everything **pending**; moderators approve at `/admin` (admin = hall ticket in
+  `ADMIN_HALL_TICKETS`). Run manually: `npm run discover`; self-test the classifier: `npm run discover -- --selftest`.
+- Semester picker, unit-level course outlines, type/unit filters, link-only submission with dedupe.
+- `npm run verify` — 19 self-checks for auth, JWT, ranking boost, moderation queue and the offline AI path.
 
 ## What V1 deliberately does NOT do
 
-No crawler, no Telegram/WhatsApp, no AI, no auth, no mobile app. See `docs/ARCHITECTURE.md` for the roadmap.
+No Telegram/WhatsApp scraping, no re-hosted files, no self-modifying code (autonomy = discovery pipeline +
+interaction-driven ranking, both human-gated), no mobile app. See `docs/ARCHITECTURE.md` for the roadmap.

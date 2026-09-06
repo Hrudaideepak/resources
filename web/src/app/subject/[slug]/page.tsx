@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import AskAI from "@/components/AskAI";
 import ResourceCard from "@/components/ResourceCard";
+import { getSession } from "@/lib/auth";
 import { getSubjectBySlug, getSubjectResources, getUnitsForSubject } from "@/lib/repo";
 import { RESOURCE_TYPE_LABEL, RESOURCE_TYPE_ORDER, type ResourceType } from "@/lib/types";
 
@@ -16,7 +18,11 @@ export default async function SubjectPage({
   const subject = await getSubjectBySlug(slug);
   if (!subject) notFound();
 
-  const [all, units] = await Promise.all([getSubjectResources(subject.id), getUnitsForSubject(subject.id)]);
+  const [all, units, session] = await Promise.all([
+    getSubjectResources(subject.id),
+    getUnitsForSubject(subject.id),
+    getSession(),
+  ]);
   const unitFilter = sp.unit ? Number(sp.unit) : null;
   const typeFilter = (sp.type as ResourceType | undefined) ?? null;
   const activeUnit = unitFilter != null ? units.find((u) => u.unit_number === unitFilter) : undefined;
@@ -103,6 +109,8 @@ export default async function SubjectPage({
           </div>
         </section>
       )}
+
+      <AskAI slug={subject.slug} subjectName={subject.short_name ?? subject.name} loggedIn={!!session} />
 
       {/* filters */}
       <div className="flex flex-wrap items-center gap-2 text-sm">

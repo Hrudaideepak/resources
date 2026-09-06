@@ -9,22 +9,31 @@ import path from "node:path";
 import * as seed from "@/data/academic";
 import { resources as seedResources } from "@/data/resources";
 import { units as seedUnits } from "@/data/units";
-import { getSupabase } from "./supabase";
-import type { Branch, College, Regulation, Resource, Subject, SubjectWithContext, Submission, Unit } from "./types";
+import { popularityFor } from "./events";
+import { getSupabase, getSupabaseAdmin } from "./supabase";
+import type { Branch, College, Regulation, Resource, ResourceStatus, Subject, SubjectWithContext, Submission, Unit } from "./types";
 
 // ------------------------------------------------------------ local store
-const LOCAL_SUBMISSIONS = path.join(process.cwd(), ".data", "submissions.json");
+// DATA_DIR resolved per call so scripts/tests can override it via env.
+const DATA_DIR = () => process.env.DATA_DIR ?? path.join(process.cwd(), ".data");
+const LOCAL_SUBMISSIONS = () => path.join(DATA_DIR(), "submissions.json");
+const LOCAL_DISCOVERED = () => path.join(DATA_DIR(), "discovered.json");
 
-async function readLocalSubmissions(): Promise<Resource[]> {
+async function readJsonFile<T>(file: string): Promise<T[]> {
   try {
-    return JSON.parse(await fs.readFile(LOCAL_SUBMISSIONS, "utf8"));
+    return JSON.parse(await fs.readFile(file, "utf8"));
   } catch {
     return [];
   }
 }
 
+const readLocalSubmissions = () => readJsonFile<Resource>(LOCAL_SUBMISSIONS());
+const readLocalDiscovered = () => readJsonFile<Resource>(LOCAL_DISCOVERED());
+
+/** Approved corpus in local mode = seeds + approved submissions + approved discoveries. */
 async function localResources(): Promise<Resource[]> {
-  return [...seedResources, ...(await readLocalSubmissions())];
+  const [subs, disc] = await Promise.all([readLocalSubmissions(), readLocalDiscovered()]);
+  return [...seedResources, ...subs, ...disc.filter((r) => r.status === "approved")];
 }
 
 function withContext(s: Subject, count: number): SubjectWithContext {
@@ -145,18 +154,78 @@ export async function getAllUnits(): Promise<Unit[]> {
 // ------------------------------------------------------------ resources
 export async function getSubjectResources(subjectId: string): Promise<Resource[]> {
   const sb = getSupabase();
+  let base: Resource[];
   if (!sb) {
-    return (await localResources())
+    base = (await localResources())
       .filter((r) => r.subject_id === subjectId && r.status === "approved")
       .sort((a, b) => b.score - a.score);
+  } else {
+    const { data } = await sb
+      .from("resources")
+      .select("*")
+      .eq("subject_id", subjectId)
+      .eq("status", "approved")
+      .order("score", { ascending: false });
+    base = (data as Resource[]) ?? [];
   }
-  const { data } = await sb
-    .from("resources")
-    .select("*")
-    .eq("subject_id", subjectId)
-    .eq("status", "approved")
-    .order("score", { ascending: false });
+  // Self-improving ranking: fold real usage (clicks/votes) into the seed score.
+  const boost = await popularityFor(base.map((r) => r.id));
+  if (!boost.size) return base;
+  return base
+    .map((r) => ({ ...r, score: Math.max(0, Math.min(100, r.score + (boost.get(r.id) ?? 0))) }))
+    .sort((a, b) => b.score - a.score);
+}
+
+// ------------------------------------------------------------- moderation
+/** Pending queue: user submissions (Supabase) + discovery agent candidates. */
+export async function getPendingResources(): Promise<Resource[]> {
+  const sb = getSupabase();
+  if (!sb) return (await readLocalDiscovered()).filter((r) => r.status === "pending");
+  const { data } = await sb.from("resources").select("*").eq("status", "pending").order("created_at", { ascending: false }).limit(200);
   return (data as Resource[]) ?? [];
+}
+
+export async function setResourceStatus(id: string, status: Extract<ResourceStatus, "approved" | "rejected">): Promise<boolean> {
+  const admin = getSupabaseAdmin();
+  if (!admin) {
+    const disc = await readLocalDiscovered();
+    const i = disc.findIndex((r) => r.id === id && r.status === "pending");
+    if (i === -1) return false; // only pending rows can transition — one-shot
+    disc[i] = { ...disc[i], status };
+    await fs.writeFile(LOCAL_DISCOVERED(), JSON.stringify(disc, null, 2));
+    return true;
+  }
+  const { error } = await admin.from("resources").update({ status }).eq("id", id).eq("status", "pending");
+  return !error;
+}
+
+/** Insert discovery candidates as pending resources. Returns rows written. */
+export async function insertPending(candidates: Omit<Resource, "id" | "created_at" | "status">[]): Promise<number> {
+  const stamped = candidates.map((c, i) => ({
+    ...c,
+    status: "pending" as const,
+    id: `disc-${Date.now()}-${i}`,
+    created_at: new Date().toISOString(),
+  }));
+  const sb = getSupabase();
+  if (!sb) {
+    const existing = await readLocalDiscovered();
+    const seen = new Set(existing.map((r) => `${r.subject_id}|${r.url.toLowerCase()}`));
+    const fresh = stamped.filter((r) => !seen.has(`${r.subject_id}|${r.url.toLowerCase()}`));
+    if (!fresh.length) return 0;
+    await fs.mkdir(path.dirname(LOCAL_DISCOVERED()), { recursive: true });
+    await fs.writeFile(LOCAL_DISCOVERED(), JSON.stringify([...existing, ...fresh], null, 2));
+    return fresh.length;
+  }
+  const { data, error } = await sb
+    .from("resources")
+    .upsert(
+      stamped.map(({ id: _id, created_at: _c, ...rest }) => rest),
+      { onConflict: "subject_id,url_hash", ignoreDuplicates: true },
+    )
+    .select("id");
+  if (error) throw new Error(error.message);
+  return data?.length ?? 0;
 }
 
 export async function submitResource(sub: Submission): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -181,8 +250,8 @@ export async function submitResource(sub: Submission): Promise<{ ok: true } | { 
     }
     // Local mode has no moderator → auto-approve so the contributor sees it immediately.
     list.push({ ...row, status: "approved", id: `local-${Date.now()}`, created_at: new Date().toISOString() });
-    await fs.mkdir(path.dirname(LOCAL_SUBMISSIONS), { recursive: true });
-    await fs.writeFile(LOCAL_SUBMISSIONS, JSON.stringify(list, null, 2));
+    await fs.mkdir(path.dirname(LOCAL_SUBMISSIONS()), { recursive: true });
+    await fs.writeFile(LOCAL_SUBMISSIONS(), JSON.stringify(list, null, 2));
     return { ok: true };
   }
   const { error } = await sb.from("resources").insert(row);

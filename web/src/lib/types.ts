@@ -116,6 +116,51 @@ export interface Submission {
   submitted_by?: string;
 }
 
+// ------------------------------------------------------------------ identity
+/** Registered user. Hall ticket number is the primary, unique username. */
+export interface UserProfile {
+  hall_ticket: string; // e.g. "22A81A0501" — primary username, immutable
+  name: string;
+  college: string | null; // free text for now (all JNTUH-affiliated colleges not yet seeded)
+  branch_id: string | null; // -> branches.id
+  regulation_id: string | null; // -> regulations.id
+  year: 1 | 2 | 3 | 4 | null;
+  semester: 1 | 2 | null;
+  role: "student" | "admin";
+  created_at: string;
+  updated_at: string;
+}
+
+/** What goes into the JWT — deliberately minimal, no PII beyond hall ticket + role. */
+export interface SessionUser {
+  hall_ticket: string;
+  name: string;
+  role: "student" | "admin";
+}
+
+// ------------------------------------------------------------- usage events
+/** Interaction telemetry that feeds ranking ("training data" from real usage). */
+export type EventKind = "search" | "click" | "up" | "down";
+
+export interface UsageEvent {
+  id: string;
+  user: string | null; // hall ticket when logged in, otherwise null (anonymous)
+  kind: EventKind;
+  subject_id: string | null;
+  resource_id: string | null;
+  query: string | null;
+  created_at: string;
+}
+
+// ----------------------------------------------------------------- discovery
+/** A candidate found on the open web, before moderation. */
+export interface DiscoveredCandidate {
+  title: string;
+  url: string;
+  description?: string;
+  source: ResourceSource;
+}
+
 /** A subject enriched with its academic context — what most UI needs */
 export interface SubjectWithContext extends Subject {
   regulation: Regulation;
